@@ -4,3 +4,5 @@ Doc Url:
 a bit more complex example on using perl, c++ and xs:
 
     https://github.com/miregit/perl-cpp-xs
+
+    https://github.com/zorkian/http-headerparser-xs

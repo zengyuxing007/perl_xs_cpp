@@ -1,0 +1,400 @@
+
+<!-- saved from url=(0042)http://www.johnkeiser.com/perl-xs-c++.html -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+<title>Perl and C++</title>
+</head>
+
+<body>
+
+<h1>Gluing C++ And Perl Together</h1>
+
+<p></p><address>August 27, 2001</address><p></p>
+
+<p>Perl XS (the Perl native glue) and C++ hookup is not clearly covered in any one reference
+that I can find.  So here's some coverage.</p>
+
+<h2>1. Preparing the Installation</h2>
+
+<p>XS totally supports C++.  XS is not the problem.  Getting MakeMaker happy is the problem.  And
+even that is just a few words.  Here's the steps to create a working C++ project from scratch:</p>
+
+<ol>
+<li>Run <code>h2xs -A -n MyPackage</code></li>
+<li><p>Edit <code>MyPackage/MyPackage.xs</code> (the XS/C++ source) to add extern "C" around the
+headers:</p>
+<pre><b>#ifdef __cplusplus
+extern "C" {
+#endif</b>
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
+<b>#ifdef __cplusplus
+}
+#endif</b>
+</pre></li>
+<li>Put the file <code>perlobject.map</code> (found in <a href="http://cpan.valueclick.com/authors/id/DMR/">Dean Roehrich's
+directory</a>) in the <code>MyPackage</code> directory.</li>
+<li><p>Create a <code>MyPackage/typemap</code> file with the following text:</p>
+<pre>TYPEMAP
+MyClass *         O_OBJECT
+</pre>
+</li>
+<li><p>Add C++ directives to <code>MyPackage/Makefile.PL</code>, like so:</p>
+<pre><b>&lt;Makefile.PL&gt;</b>
+
+use ExtUtils::MakeMaker;
+
+<b>$CC = 'g++';</b>
+ 
+# See lib/ExtUtils/MakeMaker.pm for details of how to influence
+# the contents of the Makefile that is written.
+WriteMakefile(
+    'NAME'              =&gt; 'MyPackage',
+    'VERSION_FROM'      =&gt; 'MyPackage.pm', # finds $VERSION
+    'PREREQ_PM'         =&gt; {}, # e.g., Module::Name =&gt; 1.1
+    ($] &gt;= 5.005 ?    ## Add these new keywords supported since 5.005
+      (ABSTRACT_FROM =&gt; 'MyPackage.pm', # retrieve abstract from module
+       AUTHOR        =&gt; 'John Keiser &lt;john@johnkeiser.com&gt;') : ()),
+    'LIBS'              =&gt; [], # e.g., '-lm'
+    'DEFINE'            =&gt; '', # e.g., '-DHAVE_SOMETHING'
+<b>    'CC'                =&gt; $CC,
+    'LD'                =&gt; '$(CC)',</b>
+        # Insert -I. if you add *.h files later:
+    'INC'               =&gt; "", # e.g., '-I/usr/include/other'
+        # Un-comment this if you add C files to link with later:
+    # 'OBJECT'          =&gt; '$(O_FILES)', # link all the C files too
+<b>    'XSOPT'             =&gt; '-C++',
+    'TYPEMAPS'          =&gt; ['perlobject.map' ],</b>
+);
+</pre>
+</li></ol>
+
+<p>That's all you have to do, basically.  You might have a problem if you use the C++ standard library
+"list" class, so see below if you have that.</p>
+
+<p>What this procedure does: Step 1 creates the actual package.  Step 2 makes the Perl headers compile
+and link correctly.  Step 3 adds the type mapping necessary to get object pointers to map to Perl objects.
+Step 4 causes MakeMaker (and consequently make) to use C++ to compile and link the program.</p>
+
+<h3>1.1 Running the Program</h3>
+
+<p>To run the program, just do:</p>
+
+<pre>perl Makefile.PL
+make test
+</pre>
+
+<p>The examples in the next section are best placed into <code>test.pl</code>, which will automatically run when
+you do <code>make test</code>.  It sets the variables and paths and such correctly.  You will have to do
+<code>make install</code> before you can properly do <code>use MyPackage;</code> in Perl.</p>
+
+<h2>2. Programming the C++/Perl Interface</h2>
+
+<p>Once you have the files set up (the hard part) you get to do the programming, which is pretty easy.
+I am not going to go over XS programming here; it's covered acceptably (though not as thoroughly as
+one would like) in the references below.</p>
+
+<p>The typemap you copied into the directory handles mapping between Perl scalars and MyType *.  In
+other words, the Perl object now represents a pointer to your object, without you having to do
+anything special to make it happen except declare new()!  (And you don't have to do any work in
+new either, XS handles that.</p>
+
+<h3>2.1 Straight C++</h3>
+
+<p>First, you should know that anything you put before that MODULE=... line will be compiled as straight
+C++.  XS will not do any special processing to it, it will go straight up to the C++ compiler the way it
+is.</p>
+
+<p>You might put a custom class definition here (or you can use a C++ class definition already in a
+header file).  You might put some custom functions here.  You might put some global variables here.  You
+might ignore me and skip to the next section on constructors.</p>
+
+<h3>2.2 Define Your Class</h3>
+
+<p>XS won't define your class for you.  It is expecting a class to already be there.  Either include the
+header file with the class in it or make a class definition in the straight C++ section.</p>
+
+<h3>2.3 Constructors/Destructors</h3>
+
+<p>This seems like a scary subject until you actually just put MyClass::new() and MyClass::DESTROY()
+functions into the file.  XS does the mapping automatically.  It even supports constructor args.
+Yay!</p>
+
+<h4>Example</h4>
+
+<pre><b>&lt;MyPackage.xs&gt;</b>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
+#ifdef __cplusplus
+}
+#endif
+
+<b>#include &lt;iostream.h&gt;
+
+class MyClass {
+public:
+	MyClass(char * my_favorite_argument) {
+		cout &lt;&lt; "I'm constructin' my bad self ... " &lt;&lt; my_favorite_argument &lt;&lt; "\n";
+	}
+	~MyClass() { cout &lt;&lt; "Destruction is a way of life for me.\n"; }
+};</b>
+
+MODULE = MyPackage          PACKAGE = MyPackage
+ 
+<b>MyClass *
+MyClass::new(char * my_favorite_argument)
+ 
+void
+MyClass::DESTROY()
+</b>
+</pre>
+
+<p>Note here how MyClass and MyPackage don't have to have the same name.  You can name the Perl package
+anything you want.  XS will map the C++ functions to Perl functions based on the names you give the functions
+and the most recent PACKAGE directive.</p>
+
+<h4>Test</h4>
+
+<p>Put this into test.pl at the bottom:</p>
+
+<pre>my $x = new MyPackage("Hi.");
+</pre>
+
+<p>This test will output:</p>
+
+<pre>I'm constructin' my bad self ... Hi.
+Destruction is a way of life for me.
+</pre>
+
+<h3>2.4 Member Functions</h3>
+
+<p>If you have simple non-list, non-hash return values and arguments, you can write the code for your
+member function as a member of the class, and just add
+<code>&lt;ret&gt; MyClass::myFunction(&lt;args&gt;)</code> after the MODULE= line.  XS will automagically
+hook the Perl function up to the class member function and return its return value.</p>
+
+<h4>Example</h4>
+
+<pre><b>&lt;MyPackage.xs&gt;</b>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
+#ifdef __cplusplus
+}
+#endif
+
+#include &lt;iostream.h&gt;
+
+class MyClass {
+public:
+	MyClass(char * my_favorite_argument) {
+		cout &lt;&lt; "I'm constructin' my bad self ... " &lt;&lt; my_favorite_argument &lt;&lt; "\n";
+	}
+	~MyClass() { cout &lt;&lt; "Destruction is a way of life for me.\n"; }
+	<b>int wow() { return 12 / 3; }</b>
+};
+
+MODULE = MyPackage          PACKAGE = MyPackage
+ 
+MyClass *
+MyClass::new(char * my_favorite_argument)
+ 
+void
+MyClass::DESTROY()
+
+<b>int
+MyClass::wow()
+</b>
+</pre>
+
+<h4>Test</h4>
+
+<p>Put this into test.pl at the bottom (remove the previous test):</p>
+
+<pre>my $x = new MyPackage("Hi.");
+print $x-&gt;wow, " is the magic number.\n";
+</pre>
+
+<p>This test will output:</p>
+
+<pre>I'm constructin' my bad self ... Hi.
+4 is the magic number.
+Destruction is a way of life for me.
+</pre>
+
+<h3>2.5 XS-Laden Member Functions</h3>
+
+<p>If you have to return a list or hash or accept a list or hash argument, or do other funky Perl stuff,
+you should use PPCODE.  See the references below to learn how to code these.  The only special thing that
+happens when you create a C++ member function is you get a <code>MyClass *</code> named <code>THIS</code>.
+So you can call functions like this: <code>THIS-&gt;memberFunc()</code>.</p>
+
+<p>Note that when you create a member function with PPCODE you do <i>not</i> have to have a corresponding
+class member function (though you can if you want, it just won't be called automatically).  The PPCODE
+<i>is</i> the function.</p>
+
+<h4>Example</h4>
+
+<pre><b>&lt;MyPackage.xs&gt;</b>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
+#ifdef __cplusplus
+}
+#endif
+
+#include &lt;iostream.h&gt;
+
+class MyClass {
+public:
+	MyClass(char * my_favorite_argument) {
+		cout &lt;&lt; "I'm constructin' my bad self ... " &lt;&lt; my_favorite_argument &lt;&lt; "\n";
+	}
+	~MyClass() { cout &lt;&lt; "Destruction is a way of life for me.\n"; }
+	int wow() { return 12 / 3; }
+};
+
+MODULE = MyPackage          PACKAGE = MyPackage
+ 
+MyClass *
+MyClass::new(char * my_favorite_argument)
+ 
+void
+MyClass::DESTROY()
+
+int
+MyClass::wow()
+
+<b>void
+MyClass::wow2()
+PPCODE:
+	for(int i=1;i&lt;=10;i++) {
+		XPUSHs(sv_2mortal(newSVnv(i * THIS-&gt;wow())));
+	}</b>
+</pre>
+
+<h4>Test</h4>
+
+<p>Put this into test.pl at the bottom (remove the previous test):</p>
+
+<pre>my $x = new MyPackage("Hi.");
+print "Multiples of 4: ", join(", ", $x-&gt;wow2()), "\n";
+</pre>
+
+<p>This test will output:</p>
+
+<pre>I'm constructin' my bad self ... Hi.
+Multiples of 4: 4, 8, 12, 16, 20, 24, 28, 32, 36, 40
+Destruction is a way of life for me.
+</pre>
+
+<h3>2.6 Member Variables</h3>
+
+<p>You'd think you could access member variables from Perl like a hash, right?  Not recommended.  Only
+functions are supported, though if you wanted you could create a hash and tie it to the class.  Use
+<a href="http://www.swig.org/">SWIG</a> and shadow classing if you want to access fields in a hash.</p>
+
+<h2>3. C++ stdlib and <code>list.h</code></h2>
+
+<p>Perl has a conflict with the C++ standard library: they both define the "list" structure.  There are
+two ways of solving this, depending on whether you are actually interested in using the list structure or
+not.  If you don't need the list (like if just the headers need it) or you need Perl's list structure for
+some reason, you should just include your header files (and/or stdlib) before the standard Perl include
+files.  For example, if you have a header file <code>&lt;myfile.h&gt;</code> that includes
+<code>&lt;list&gt;</code>, do this:</p>
+
+<pre><b>#include &lt;myfile.h&gt;</b>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
+#ifdef __cplusplus
+}
+#endif
+</pre>
+
+<p>If you want to use the C++ stdlib list object in the Perl file itself, you need to #undef list and
+then include your files <i>after</i> the standard Perl headers (including <code>&lt;list&gt;</code> if your
+header files do not include list).</p>
+
+<pre>#ifdef __cplusplus
+extern "C" {
+#endif
+#include "EXTERN.h"
+#include "perl.h"
+#include "XSUB.h"
+#ifdef __cplusplus
+}
+#endif
+
+<b>#undef list
+#include &lt;myfile.h&gt;
+#include &lt;list&gt;</b>
+</pre>
+
+<p>If one method doesn't work, try the other.  If you need both in one file, you may be able to use the first
+method, put your functions that require the C++ list last in the file, and then do <code>#undef list</code>
+and <code>#include &lt;list&gt;</code> just before you .  This is untested though, and really not recommended
+because it's ugly.  Thanks to
+<a href="http://archive.develooper.com/perl-xs%40perl.org/msg00274.html">Tye McQueen</a> for the info that
+led to this section.</p>
+
+<h2>4. General XS Pointers</h2>
+
+<p>XS is pretty cool, and actually fairly simple <i>once you understand it.</i>  The tutorial and
+manpage for XS give you some decent basic information, but they won't tell you everything you need
+to know to get an XS package off the ground.  Here are all the pointers I found (in order of their
+usefulness to me in figuring stuff out):</p>
+
+<ol>
+<li>The <a href="http://www.perldoc.com/perl5.6/pod/perlxstut.html">Perl XS Tutorial</a> man page
+("man perlxstut") is the first place you should go when you know nothing at all about XS.  Not
+that it will give you enough information to do what you want to do, mind you, but it will get
+you started in the basics rather admirably.</li>
+<li><a href="http://www.perldoc.com/perl5.6/pod/perlguts.html">Perl Guts</a> and
+<a href="http://www.perldoc.com/perl5.6/pod/perlapi.html">Perl API</a> man pages ("man perlguts"
+and "man perlapi") are very useful in figuring out how to actually talk to Perl directly when you
+need something a little more than the C/C++ hookup.  Like when you want to return arrays, for
+example.  Guts is a more structured explanation, API is a more complete reference.</li>
+<li><a href="http://archive.develooper.com/perl-xs%40perl.org/index.html">The XS Mailing List</a>
+is the place where at least a few fairly advanced developers talk about XS.  Answers to newbie
+questions are sporadic but very useful.  Strange URL: develooper.com?</li>
+<li><a href="http://cpan.valueclick.com/authors/id/DMR/">Dean Roehrich's Examples</a> are great for
+getting moving.  CookBookA and CookBookB in this directory are what you want.  CookBookB in particular
+has a C++ example and many structure examples.</li>
+<li>The <a href="http://www.perldoc.com/perl5.6/pod/perlxs.html">Perl XS</a> man page ("man perlxs")
+is where you'd expect you'd want to go, right?  Well, I am not sure what the heck is wrong with it
+(or me) but I couldn't extract much of any useful information from it.  Maybe you'll have better luck,
+though.</li>
+<li><a href="http://www.perldoc.com/perl5.6/lib/ExtUtils/MakeMaker.html">MakeMaker</a> is the tool
+you use to actually compile and install your stuff.  Unfortunately this documentation by itself is
+inadequate for figuring out how to actually perform what you want to do--this is more of a reference
+than an introduction.  I have not found a sufficient MakeMaker introduction to date, even though it
+is the foundation of CPAN and almost all Perl packaging and a damn cool tool.</li>
+<li><a href="http://www.swig.org/Doc1.1/HTML/Perl5.html">SWIG</a> is supposed to be a wonderful
+(and simpler) alternative to Perl/XS.  I couldn't get it to work, though. :(</li>
+<li><a href="http://search.cpan.org/search?dist=Inline-CPP">Inline</a> is another package that does
+this stuff.  I have not looked into it.  Time is the enemy of us all ...</li>
+</ol>
+
+<p></p><address>Copyright (C) 2001 <a href="http://www.johnkeiser.com/">John Keiser</a> (<a href="mailto:john@johnkeiser.com">john@johnkeiser.com</a>).  Redistribute freely, just keep this copyright with file.</address><p></p>
+
+
+
+</body></html>

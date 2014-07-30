@@ -1,0 +1,6 @@
+Revision history for Perl extension MyModule.
+
+0.01  Wed Jul 30 11:26:26 2014
+	- original version; created by h2xs 1.23 with options
+		-A --skip-exporter -nMyModule
+

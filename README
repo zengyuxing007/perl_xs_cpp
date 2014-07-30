@@ -1,2 +1,6 @@
 Doc Url:
-http://www.johnkeiser.com/perl-xs-c++.html
+    http://www.johnkeiser.com/perl-xs-c++.html
+
+a bit more complex example on using perl, c++ and xs:
+
+    https://github.com/miregit/perl-cpp-xs
